@@ -1,0 +1,38 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "spotagen"
+version = "0.1.0"
+description = "AI-powered Spotify playlist generator with a Catppuccin-themed terminal UI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "spotagen" }]
+dependencies = [
+    "typer>=0.12",
+    "rich>=13.0",
+    "spotipy>=2.23",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "tomli-w>=1.0",
+    "httpx>=0.27",
+    "platformdirs>=4.0",
+    "anthropic>=0.28",
+    "openai>=1.30",
+    # mistralai SDK intentionally omitted: v2.x pins legacy opentelemetry
+    # versions that conflict with the wider ecosystem. The Mistral chat API
+    # is OpenAI-compatible, so spotagen calls it directly via httpx.
+]
+
+[project.scripts]
+spotagen = "spotagen.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["spotagen"]
+
+[tool.mypy]
+strict = true
+python_version = "3.10"
+ignore_missing_imports = true
