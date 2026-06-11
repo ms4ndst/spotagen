@@ -1,4 +1,4 @@
-"""Typed helpers over `spotipy` — artist search, top tracks, catalogue search."""
+"""Typed helpers over `spotipy` â€” artist search, top tracks, catalogue search."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -82,8 +82,47 @@ class SpotifyClient:
                 break
             after = str(next_after)
         return artists
+    def similar_artists(self, artist_id: str, limit: int = 20) -> list[ArtistInfo]:
+        """Return artists in the same genre as the given artist.
+        
+        Since the related-artists endpoint is deprecated, this method:
+        1. Gets the artist's genres
+        2. Searches for other artists with matching genres
+        3. Returns up to limit artists, excluding the original artist
+        """
+        try:
+            artist = self._sp.artist(artist_id)
+        except spotipy.SpotifyException:
+            return []
+        
+        artist_name = artist.get("name", "")
+        genres = artist.get("genres", [])
+        seen_ids: set[str] = {artist_id}
+        similar: list[ArtistInfo] = []
+        
+        for genre in genres:
+            if len(similar) >= limit:
+                break
+            try:
+                # Quote the genre so multi-word values like "dream pop" match
+                # the filter instead of leaking the second word into free search.
+                result = self._sp.search(q=f'genre:"{genre}"', type="artist", limit=10)
+            except spotipy.SpotifyException:
+                continue
+            items = (result or {}).get("artists", {}).get("items", []) or []
+            for item in items:
+                aid = str(item.get("id", ""))
+                if aid and aid not in seen_ids:
+                    similar.append(ArtistInfo(id=aid, name=str(item.get("name", ""))))
+                    seen_ids.add(aid)
+                    if len(similar) >= limit:
+                        break
+        
+        return similar
 
-    # ----- playlist primitives — used by playlist.py
+
+
+    # ----- playlist primitives â€” used by playlist.py
     def create_user_playlist(
         self, user_id: str, name: str, description: str, public: bool
     ) -> dict[str, Any]:

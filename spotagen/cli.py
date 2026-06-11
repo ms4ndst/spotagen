@@ -2,7 +2,7 @@
 
 Every command builds its `rich.Console` through `_themed_console()` so output
 respects the user's configured Catppuccin flavor and accent. No `print()` calls
-are made anywhere — all output flows through themed consoles.
+are made anywhere â€” all output flows through themed consoles.
 """
 from __future__ import annotations
 
@@ -110,7 +110,7 @@ def setup() -> None:
         console=console,
     )
     s.spotify.client_secret = Prompt.ask(
-        "[label]Spotify client_secret[/label] [muted](optional — PKCE is used)[/muted]",
+        "[label]Spotify client_secret[/label] [muted](optional â€” PKCE is used)[/muted]",
         default=s.spotify.client_secret,
         console=console,
     )
@@ -165,7 +165,7 @@ def setup() -> None:
 
     save_settings(s)
     new_console = _themed_console(s)
-    new_console.print(f"[success]✓ Saved to {config_path()}[/success]")
+    new_console.print(f"[success]âœ“ Saved to {config_path()}[/success]")
 
     if Confirm.ask(
         "[label]Run Spotify auth now?[/label]",
@@ -176,10 +176,10 @@ def setup() -> None:
             from .spotify.auth import get_access_token
 
             get_access_token(s)
-            new_console.print("[success]✓ Spotify authenticated[/success]")
+            new_console.print("[success]âœ“ Spotify authenticated[/success]")
         except Exception as exc:  # noqa: BLE001
             new_console.print(
-                f"[error]✗ Spotify auth failed: {exc}[/error]\n"
+                f"[error]âœ— Spotify auth failed: {exc}[/error]\n"
                 "[muted]Run `spotagen setup` again or check your client_id.[/muted]"
             )
 
@@ -241,7 +241,7 @@ def _mask(value: str) -> str:
         return "[muted]<unset>[/muted]"
     if len(value) <= 8:
         return "[muted]****[/muted]"
-    return f"[muted]{value[:4]}…{value[-4:]}[/muted]"
+    return f"[muted]{value[:4]}â€¦{value[-4:]}[/muted]"
 
 
 @app.command()
@@ -250,7 +250,7 @@ def config(
         False, "--show", help="Print current config as a table instead of opening an editor."
     ),
 ) -> None:
-    """Open config in $EDITOR / notepad — or with --show, print it as a table."""
+    """Open config in $EDITOR / notepad â€” or with --show, print it as a table."""
     s = load_settings()
     console = _themed_console(s)
     banner(console)
@@ -269,7 +269,7 @@ def config(
         subprocess.call([editor, str(p)])
     except FileNotFoundError:
         console.print(
-            f"[error]✗ Editor {editor!r} not found.[/error] "
+            f"[error]âœ— Editor {editor!r} not found.[/error] "
             f"Edit manually: [info]{p}[/info]"
         )
 
@@ -288,7 +288,7 @@ def artists_list() -> None:
     artists = load_artists()
     if not artists:
         console.print(
-            "[muted]No artists yet — add with `spotagen artists add NAME`.[/muted]"
+            "[muted]No artists yet â€” add with `spotagen artists add NAME`.[/muted]"
         )
         return
     table = Table(
@@ -339,7 +339,7 @@ def artists_add(
         return
     artists.append(canonical)
     save_artists(artists)
-    console.print(f"[success]✓ Added [artist]{canonical}[/artist][/success]")
+    console.print(f"[success]âœ“ Added [artist]{canonical}[/artist][/success]")
 
 
 @artists_app.command("sync")
@@ -362,7 +362,7 @@ def artists_sync(
         followed = client.followed_artists()
     except Exception as exc:  # noqa: BLE001
         console.print(
-            f"[error]✗ Could not fetch followed artists: {exc}[/error]\n"
+            f"[error]âœ— Could not fetch followed artists: {exc}[/error]\n"
             "[muted]If this is a scope error, run `spotagen setup` to re-auth.[/muted]"
         )
         return
@@ -383,14 +383,14 @@ def artists_sync(
     save_artists(existing)
     verb = "Replaced" if replace else "Merged"
     console.print(
-        f"[success]✓ {verb}: {len(followed)} followed artist(s) "
-        f"from Spotify · {len(added)} new[/success]"
+        f"[success]âœ“ {verb}: {len(followed)} followed artist(s) "
+        f"from Spotify Â· {len(added)} new[/success]"
     )
     if added:
         for name in added[:12]:
             console.print(f"    [artist]+ {name}[/artist]")
         if len(added) > 12:
-            console.print(f"    [muted]…and {len(added) - 12} more[/muted]")
+            console.print(f"    [muted]â€¦and {len(added) - 12} more[/muted]")
 
 
 @artists_app.command("remove")
@@ -420,7 +420,7 @@ def artists_remove() -> None:
         return
     removed = artists.pop(idx - 1)
     save_artists(artists)
-    console.print(f"[success]✓ Removed [artist]{removed}[/artist][/success]")
+    console.print(f"[success]âœ“ Removed [artist]{removed}[/artist][/success]")
 
 
 # --------------------------------------------------------------------------- #
@@ -492,6 +492,40 @@ def generate(
 # --------------------------------------------------------------------------- #
 
 
+# --------------------------------------------------------------------------- #
+# genre
+# --------------------------------------------------------------------------- #
+
+
+@app.command()
+def genre(
+    artist: str = typer.Argument(..., help="Artist name to get genres from"),
+    count: int = typer.Option(
+        10, "--count", "-c", help="Number of songs in the playlist."
+    ),
+    limit_artists: int = typer.Option(
+        20, "--limit-artists", help="Maximum number of artists to include from the genre."
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Print the tracklist without creating a playlist."
+    ),
+    theme: Optional[Flavor] = typer.Option(
+        None, "--theme", help="Override the UI flavor for this run."
+    ),
+) -> None:
+    """Create a playlist from artists in the same genre as the specified artist."""
+    from .curator import run_genre
+
+    run_genre(
+        artist=artist,
+        count=count,
+        limit_artists=limit_artists,
+        theme_override=theme,
+        dry_run=dry_run,
+    )
+
+
+
 @app.command()
 def history(
     limit: int = typer.Option(20, "--limit", help="How many recent entries to show."),
@@ -506,7 +540,7 @@ def history(
     if sys.version_info >= (3, 11):
         import tomllib
     else:  # pragma: no cover
-        import tomli as tomllib  # noqa: F401 — runtime fallback for Python 3.10
+        import tomli as tomllib  # noqa: F401 â€” runtime fallback for Python 3.10
 
     p = history_path()
     if not p.exists():

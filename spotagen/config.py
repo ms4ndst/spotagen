@@ -47,13 +47,33 @@ def history_path() -> Path:
 
 
 def load_settings() -> Settings:
-    """Load and validate the TOML config. Returns defaults if the file is missing."""
+    """Load and validate the TOML config. Returns defaults if the file is missing.
+
+    Raises:
+        ConfigError: if the file exists but is malformed TOML or fails Pydantic
+            validation. The exception message names the file and the parse
+            location so the user can fix it without reading a stack trace.
+    """
     p = config_path()
     if not p.exists():
         return Settings()
-    with p.open("rb") as f:
-        data = tomllib.load(f)
-    return Settings.model_validate(data)
+    try:
+        with p.open("rb") as f:
+            data = tomllib.load(f)
+    except tomllib.TOMLDecodeError as exc:
+        raise ConfigError(
+            f"config.toml is not valid TOML — {exc}\n"
+            f"  file: {p}\n"
+            "  Fix the line above, or run `spotagen setup` to overwrite it."
+        ) from exc
+    try:
+        return Settings.model_validate(data)
+    except Exception as exc:  # noqa: BLE001 — pydantic.ValidationError + others
+        raise ConfigError(
+            f"config.toml failed validation — {exc}\n"
+            f"  file: {p}\n"
+            "  Fix the field above, or run `spotagen setup` to overwrite it."
+        ) from exc
 
 
 def save_settings(settings: Settings) -> None:

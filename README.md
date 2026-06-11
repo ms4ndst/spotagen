@@ -134,10 +134,11 @@ Files inside:
 
 | File            | Contents                                       |
 |-----------------|------------------------------------------------|
-| `config.toml`   | Spotify creds, AI provider, theme, behaviour   |
-| `artists.toml`  | Your manually-curated artist list              |
-| `tokens.json`   | Cached Spotify access + refresh tokens         |
-| `history.toml`  | Append-only log of generated playlists         |
+| `config.toml`            | Spotify creds, AI provider, theme, behaviour                                  |
+| `artists.toml`           | Your manually-curated artist list                                             |
+| `tokens.json`            | Cached Spotify access + refresh tokens                                        |
+| `history.toml`           | Append-only log of generated playlists                                        |
+| `last_run_recovery.json` | Tracks from the most recent failed run (only present if a run died mid-write) |
 
 ---
 
@@ -171,14 +172,26 @@ Files inside:
 
 ### `--no-top-tracks` vs `--exclude-top-tracks`
 
-| Flag                  | Candidate pool comes from | Top-track filtering         |
-|-----------------------|---------------------------|-----------------------------|
-| _(default)_           | Spotify top-tracks API    | None — they ARE the pool    |
-| `--no-top-tracks`     | Agent-generated searches  | Soft — agent is asked to avoid them |
-| `--exclude-top-tracks`| Agent-generated searches  | **Hard** — top-track IDs are removed from the pool before the agent sees them |
+| Flag                  | Candidate pool comes from           | Top-track filtering         | Best for                                  |
+|-----------------------|--------------------------------------|-----------------------------|-------------------------------------------|
+| _(default)_           | Spotify top-tracks API               | None — they ARE the pool    | Familiar hits playlist                    |
+| `--no-top-tracks`     | Agent-generated searches             | Soft — agent is asked to avoid them | Live recordings, BBC sessions, collabs    |
+| `--exclude-top-tracks`| **Catalogue pagination** (`artist:"NAME"` search, all pages) | **Hard** — top-track IDs are removed from the pool before the agent sees them | Deep-cuts playlist from the artist's own discography |
 
-Use `--exclude-top-tracks` when you want guaranteed-no-chart-hits even if the
-agent's curation is sloppy.
+**Why `--exclude-top-tracks` uses catalogue pagination, not search**: Spotify
+search is popularity-ordered, so the candidate pool is *exactly* the chart
+hits you wanted to exclude. Blacklisting them empties the pool. Catalogue
+pagination walks past the top hits into the deep pages, yielding dozens to
+hundreds of tracks per artist before the blacklist runs — leaving the agent
+plenty to curate from.
+
+You can still combine `--no-top-tracks` with the blacklist if you want
+agent-driven session/feat discovery PLUS the safety net of top-track removal:
+
+```bash
+spotagen generate --no-top-tracks   # agent picks live/BBC/feat queries; no blacklist
+spotagen generate --exclude-top-tracks            # catalogue + blacklist (deep cuts)
+```
 
 ---
 
@@ -197,7 +210,7 @@ exclude_top_tracks     = false  # true  = hard-blacklist every artist's chart hi
 use_followed_artists   = false  # true  = always merge in your Spotify follows
 max_artists_per_run    = 50     # 0     = no cap (warning: large lists hit Spotify rate limits)
 randomize_order        = true
-playlist_name_prefix   = "Spotagen"
+playlist_name_prefix   = "Spotagen"     # strftime template — see below
 
 [ui]
 flavor = "mocha"      # mocha | macchiato | frappe | latte
@@ -228,6 +241,35 @@ Artists are stored separately at `artists.toml` in the same directory:
 ```toml
 artists = ["Radiohead", "Portishead", "Massive Attack"]
 ```
+
+### `playlist_name_prefix` — date placeholders
+
+The prefix is treated as a Python [`strftime`](https://docs.python.org/3/library/datetime.html#strftime-strptime-behavior)
+template. Any `%`-codes are expanded against today's date, and when the prefix
+contains date codes the default `· Mon YYYY ·` middle segment is dropped so
+the date doesn't appear twice. The trailing `· N tracks` segment always stays.
+
+| `playlist_name_prefix`     | Generated title (run on 2026-06-09)            |
+|----------------------------|------------------------------------------------|
+| `"Spotagen"` _(default)_   | `Spotagen · Jun 2026 · 15 tracks`              |
+| `"Spotagen %Y-%m-%d"`      | `Spotagen 2026-06-09 · 15 tracks`              |
+| `"Mix for %A %d %B"`       | `Mix for Tuesday 09 June · 15 tracks`          |
+| `"%Y-W%V Spotagen"`        | `2026-W24 Spotagen · 15 tracks`                |
+| `"Daily Cuts"`             | `Daily Cuts · Jun 2026 · 15 tracks`            |
+| `"100%% deep cuts"`        | `100% deep cuts · 15 tracks` _(`%%` escapes a literal `%`)_ |
+
+Common date codes:
+
+| Code | Meaning              | Example  |
+|------|----------------------|----------|
+| `%Y` | Year, 4-digit        | `2026`   |
+| `%m` | Month, 2-digit       | `06`     |
+| `%d` | Day, 2-digit         | `09`     |
+| `%B` | Month name           | `June`   |
+| `%b` | Month, abbreviated   | `Jun`    |
+| `%A` | Weekday              | `Tuesday`|
+| `%a` | Weekday, abbreviated | `Tue`    |
+| `%V` | ISO week number      | `24`     |
 
 ---
 
@@ -262,22 +304,43 @@ re-runs the OAuth flow automatically.
 1. Load `artists.toml`, optionally merge in Spotify follows.
 2. Resolve each name to a Spotify artist ID (followed artists skip this step
    — they already have IDs).
-3. **Candidate fetch:**
-   - If `use_top_tracks = true`: pull each artist's top tracks from Spotify.
-   - If `--no-top-tracks` / `use_top_tracks = false` / `--exclude-top-tracks`:
-     the AI agent first generates Spotify search queries (BBC sessions, live
-     versions, collaborations, demos, remixes), and spotagen runs each query
-     against the Spotify search API.
+3. **Candidate fetch** — three modes, picked by the active flags:
+   - `use_top_tracks = true` (default): pull each artist's top tracks from Spotify.
+   - `--no-top-tracks` / `use_top_tracks = false`: the AI agent generates
+     Spotify search queries (BBC sessions, live versions, collaborations,
+     demos, remixes); spotagen runs each query against the Spotify search API.
+   - `--exclude-top-tracks` / `exclude_top_tracks = true`: paginated
+     `artist:"NAME"` catalogue search per artist — walks past the top hits
+     into the deep pages and gathers up to ~200 catalogue tracks per artist
+     before the top-track blacklist runs.
 4. **Top-tracks blacklist** (only when `--exclude-top-tracks` /
    `exclude_top_tracks = true`): each artist's top tracks are fetched and
    their IDs hard-removed from the candidate pool before the agent sees them.
-5. **Curation pass:** the agent receives the candidate list and selects
+5. **Strict allowlist enforcement** (discovery and catalogue modes): two
+   layers stop tracks where the primary artist isn't in your list from
+   sneaking into the candidate pool.
+   - **Layer 1** (discovery only): every discovery query the agent attributes
+     to an artist that isn't in your resolved list is dropped before it hits
+     Spotify. Counted and reported as `Dropped N agent quer(y/ies)
+     attributed to artists not in your list`.
+   - **Layer 2** (both modes): every track returned by Spotify is required
+     to have the followed artist's Spotify ID as its **primary credit**
+     (`artists[0]`) — not merely a feature. Matching is by ID, not by name
+     string. This is the rule that rejects tracks credited to "Jack White
+     feat. Beck" when you follow Beck but not Jack White: Beck is a feature,
+     not the primary artist, so the track is rejected.
+
+   Together this means a discovery query like `"Radiohead Thom Yorke solo
+   projects"` can never inject a Thom Yorke solo track into the playlist
+   unless you also follow Thom Yorke — even if Radiohead happens to be
+   listed as a feature on that track.
+6. **Curation pass:** the agent receives the candidate list and selects
    `total_songs_per_artist` tracks per artist, returning only IDs that existed
    in the candidate list (no hallucinated IDs).
-6. Spotagen filters out any unknown IDs as a safety net, shows the agent's
+7. Spotagen filters out any unknown IDs as a safety net, shows the agent's
    reasoning in a Catppuccin-themed panel, optionally shuffles, and creates a
    private playlist on your account.
-7. The new playlist's title, URL, and track count are appended to
+8. The new playlist's title, URL, and track count are appended to
    `history.toml`.
 
 ---
@@ -295,6 +358,8 @@ re-runs the OAuth flow automatically.
 | No artists configured           | Themed error pointing at `artists add` / `artists sync` / `--from-spotify` |
 | Spotify search call fails       | That single query is skipped, run continues; count summarised at end |
 | Spotify rate-limits artist lookup | That artist is skipped, run continues with the rest             |
+| Agent invents a discovery query for a non-followed artist | Query dropped; counted in summary |
+| Spotify search returns a track with no followed artist credited | Track rejected by ID allowlist; counted in summary |
 
 ### Large artist lists & the per-run cap
 
@@ -323,6 +388,25 @@ dropping connections somewhere around that volume. spotagen now catches
 those failures (single failed query → skip, summary at the end) so a
 rate-limit no longer aborts the whole run, but the cap is the right
 first-line answer.
+
+### Recovery file — never lose curated work
+
+If Spotify drops the connection during playlist creation or track-adding (TCP
+RST, transient 5xx, intermittent network), all the agent's work would
+otherwise be lost. spotagen now:
+
+1. **Retries** playlist creation and track-adding up to 3 times each with
+   exponential backoff (1.5s, 3s).
+2. If retries are still exhausted, writes the full curated tracklist to
+   `last_run_recovery.json` in your config directory — including each
+   track's `spotify:track:ID` URI so you can paste them into a playlist
+   manually as a last resort.
+3. If `create_playlist` succeeded but `add_tracks` died midway, the URL of
+   the empty/partial playlist is printed so you can find it on Spotify and
+   finish populating it from the recovery file.
+
+A successful run does not write a recovery file. If one exists, it's
+guaranteed to be from a failed run.
 
 ### Long artist lists & chunking
 

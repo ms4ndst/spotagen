@@ -156,22 +156,96 @@ def build_discover_prompt(artists: list[str], songs_per_artist: int) -> str:
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|```\s*$", re.MULTILINE)
 
+# Smart-quote / typographic-quote → straight-quote map. LLMs that quote source
+# material (track titles, artist names) sometimes echo curly quotes from
+# Wikipedia/Genius/etc., which json.loads refuses.
+_SMART_QUOTES = str.maketrans(
+    {
+        "“": '"',  # left double curly
+        "”": '"',  # right double curly
+        "‘": "'",  # left single curly
+        "’": "'",  # right single curly
+        "′": "'",  # prime
+        "″": '"',  # double prime
+    }
+)
+
+# `,\s*]` or `,\s*}` — trailing comma, valid JS but invalid JSON.
+_TRAILING_COMMA_RE = re.compile(r",(\s*[\]}])")
+
+# Unquoted property name: `{artist: "X"}` or `,foo: 1}` — common Mistral slip.
+_UNQUOTED_KEY_RE = re.compile(r'([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)(\s*:)')
+
+
+def _repair_json(text: str) -> str:
+    """Apply low-risk, idempotent fixes for the most common LLM JSON errors."""
+    out = text.translate(_SMART_QUOTES)
+    out = _TRAILING_COMMA_RE.sub(r"\1", out)
+    out = _UNQUOTED_KEY_RE.sub(r'\1"\2"\3', out)
+    return out
+
+
+def _salvage_objects(text: str) -> list[dict[str, Any]]:
+    """Last-resort: walk the text top-level, parse each `{...}` block on its
+    own, and skip the ones that still fail. One malformed object no longer
+    invalidates the surrounding array.
+    """
+    items: list[dict[str, Any]] = []
+    depth = 0
+    start_idx = -1
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start_idx = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start_idx >= 0:
+                chunk = text[start_idx : i + 1]
+                obj: Any = None
+                for candidate in (chunk, _repair_json(chunk)):
+                    try:
+                        obj = json.loads(candidate)
+                        break
+                    except json.JSONDecodeError:
+                        continue
+                if isinstance(obj, dict):
+                    items.append(obj)
+                start_idx = -1
+    return items
+
 
 def parse_json_array(text: str) -> list[dict[str, Any]]:
-    """Extract a JSON array from a model response, tolerating fences and prose.
+    """Extract a JSON array from a model response, tolerating fences, prose,
+    and common LLM JSON quirks (smart quotes, trailing commas, unquoted keys).
 
     Raises:
-        AgentParseError: if no valid JSON array can be recovered.
+        AgentParseError: if no valid JSON array can be recovered even after
+            repair + per-object salvage.
     """
     stripped = _FENCE_RE.sub("", text.strip()).strip()
     start = stripped.find("[")
     end = stripped.rfind("]")
     if start == -1 or end == -1 or end < start:
         raise AgentParseError(f"No JSON array found in response: {text[:300]!r}")
+    raw = stripped[start : end + 1]
+
+    # Path 1: strict parse — works for well-formed responses.
     try:
-        data = json.loads(stripped[start : end + 1])
-    except json.JSONDecodeError as exc:
-        raise AgentParseError(f"Invalid JSON: {exc}") from exc
+        data: Any = json.loads(raw)
+    except json.JSONDecodeError:
+        # Path 2: apply low-risk repairs (smart quotes, trailing commas,
+        # unquoted keys) and re-parse.
+        try:
+            data = json.loads(_repair_json(raw))
+        except json.JSONDecodeError as exc:
+            # Path 3: salvage individual top-level `{...}` objects so one bad
+            # entry doesn't lose the whole chunk's worth of work.
+            salvaged = _salvage_objects(raw)
+            if salvaged:
+                return salvaged
+            raise AgentParseError(f"Invalid JSON: {exc}") from exc
+
     if not isinstance(data, list):
         raise AgentParseError("Expected a JSON array at the top level.")
     return [item for item in data if isinstance(item, dict)]

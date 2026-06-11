@@ -1,7 +1,7 @@
 """Main orchestration:
 
-    load artists → fetch candidates → agent (curate or discover)
-    → validate ids → shuffle → create playlist → record history → print summary
+    load artists â†’ fetch candidates â†’ agent (curate or discover)
+    â†’ validate ids â†’ shuffle â†’ create playlist â†’ record history â†’ print summary
 
 All Spotify and AI calls are wrapped in `rich.Progress` so the terminal never
 appears to hang on a synchronous network call.
@@ -44,7 +44,7 @@ from .theme import banner, build_rich_theme
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover
-    import tomli as tomllib  # noqa: F401 — runtime fallback for Python 3.10
+    import tomli as tomllib  # noqa: F401 â€” runtime fallback for Python 3.10
 
 
 # How many artists to send the AI agent per request. Keeps prompts small
@@ -122,7 +122,7 @@ def run_generate(
         settings.ui.flavor = theme_override
 
     n = count if count is not None else settings.playlist.total_songs_per_artist
-    # `exclude_top_tracks` implies discovery — the candidate pool would otherwise
+    # `exclude_top_tracks` implies discovery â€” the candidate pool would otherwise
     # be entirely chart hits and we'd blacklist everything.
     blacklist_top_tracks = exclude_top_tracks or settings.playlist.exclude_top_tracks
     use_top_tracks = (
@@ -137,10 +137,10 @@ def run_generate(
 
     artists = load_artists()
     # When followed-artists mode is on we'll merge in Spotify follows below
-    # — so an empty local artists.toml isn't fatal in that case.
+    # â€” so an empty local artists.toml isn't fatal in that case.
     if not artists and not pull_followed:
         console.print(
-            "[error]✗ No artists configured.[/error] "
+            "[error]âœ— No artists configured.[/error] "
             "Add some with [info]spotagen artists add NAME[/info] "
             "or pass [info]--from-spotify[/info] to use your follows."
         )
@@ -148,25 +148,25 @@ def run_generate(
 
     console.print(
         f" [label]Provider[/label]   "
-        f"[provider]{settings.ai.provider.value} · {_provider_model(settings)}[/provider]"
+        f"[provider]{settings.ai.provider.value} Â· {_provider_model(settings)}[/provider]"
     )
     console.print(
         f" [label]Artists[/label]    "
-        f"[body]{len(artists)} loaded · {n} tracks each[/body]\n"
+        f"[body]{len(artists)} loaded Â· {n} tracks each[/body]\n"
     )
 
     # ----- build agent + Spotify client
     try:
         agent = _make_provider(settings, console)
     except (ValueError, RuntimeError) as exc:
-        console.print(f"[error]✗ AI provider unavailable: {exc}[/error]")
+        console.print(f"[error]âœ— AI provider unavailable: {exc}[/error]")
         return
 
     try:
         spotify = SpotifyClient.from_settings(settings)
     except Exception as exc:  # noqa: BLE001
         console.print(
-            f"[error]✗ Spotify auth failed[/error] — {exc}\n"
+            f"[error]âœ— Spotify auth failed[/error] â€” {exc}\n"
             "[muted]Run `spotagen setup` to reconfigure.[/muted]"
         )
         return
@@ -178,7 +178,7 @@ def run_generate(
             followed = spotify.followed_artists()
         except Exception as exc:  # noqa: BLE001
             console.print(
-                f"[warning]⚠ Could not fetch followed artists: {exc}[/warning]\n"
+                f"[warning]âš  Could not fetch followed artists: {exc}[/warning]\n"
                 "[muted]Continuing with artists.toml only.[/muted]"
             )
         else:
@@ -189,7 +189,7 @@ def run_generate(
 
     if not artists and not followed:
         console.print(
-            "[error]✗ No artists to generate from.[/error] "
+            "[error]âœ— No artists to generate from.[/error] "
             "[muted](artists.toml is empty and you don't follow anyone yet)[/muted]"
         )
         return
@@ -205,7 +205,7 @@ def run_generate(
         cap = max(0, settings.playlist.max_artists_per_run)
 
     # The cap is applied to BOTH the followed list and the artists.toml names
-    # together — we union first, then sample, so the user gets a mix from both
+    # together â€” we union first, then sample, so the user gets a mix from both
     # sources rather than all-of-one-source-then-truncate.
     if cap and len(followed) + len(artists) > cap:
         all_inputs: list[tuple[str, ArtistInfo | None]] = (
@@ -219,11 +219,11 @@ def run_generate(
         console.print(
             f" [label]Sampling[/label]   "
             f"[body]{cap} artists drawn at random from your "
-            f"{len(all_inputs)} total · pass [info]--all-artists[/info] to use everything[/body]\n"
+            f"{len(all_inputs)} total Â· pass [info]--all-artists[/info] to use everything[/body]\n"
         )
 
     # ----- resolve artists to canonical IDs
-    # Followed artists already carry their Spotify ID — only the artists.toml
+    # Followed artists already carry their Spotify ID â€” only the artists.toml
     # names need a search-API resolution. Followed entries take precedence
     # when there's a case-insensitive name overlap (their IDs are guaranteed).
     console.print(Rule("Resolving artists", style="border"))
@@ -239,26 +239,26 @@ def run_generate(
                 try:
                     info = spotify.search_artist(name)
                 except Exception:  # noqa: BLE001
-                    # Transient Spotify error (rate limit, connection reset) —
+                    # Transient Spotify error (rate limit, connection reset) â€”
                     # skip this artist rather than killing the whole run.
                     failed_lookups += 1
                     progress.advance(task)
                     continue
                 if info is None:
                     console.print(
-                        f"[warning]⚠ Artist not found on Spotify: {name}[/warning]"
+                        f"[warning]âš  Artist not found on Spotify: {name}[/warning]"
                     )
                 else:
                     resolved.append(info)
                 progress.advance(task)
         if failed_lookups:
             console.print(
-                f"[warning]⚠ {failed_lookups} artist lookup(s) failed "
+                f"[warning]âš  {failed_lookups} artist lookup(s) failed "
                 "(likely rate-limited) and were skipped.[/warning]"
             )
 
     if not resolved:
-        console.print("[error]✗ No artists could be resolved.[/error]")
+        console.print("[error]âœ— No artists could be resolved.[/error]")
         return
 
     # ----- fetch candidates
@@ -270,7 +270,7 @@ def run_generate(
             candidates = _apply_top_tracks_blacklist(spotify, resolved, candidates, console)
 
     if not candidates:
-        console.print("[error]✗ No candidate tracks found.[/error]")
+        console.print("[error]âœ— No candidate tracks found.[/error]")
         return
 
     # ----- curate
@@ -289,7 +289,7 @@ def run_generate(
     # ----- reasoning panel
     reasons = [c.reason for c in curated if c.reason]
     if reasons:
-        body = "\n".join(f"[muted]· {r}[/muted]" for r in reasons[:8])
+        body = "\n".join(f"[muted]Â· {r}[/muted]" for r in reasons[:8])
         console.print()
         console.print(Panel(body, title="[subheader]Reasoning[/subheader]", border_style="border"))
 
@@ -299,19 +299,19 @@ def run_generate(
 
     # ----- dry run exit
     if dry_run:
-        console.print(Rule("Dry run — tracklist", style="border"))
+        console.print(Rule("Dry run â€” tracklist", style="border"))
         for cur in curated:
             console.print(
-                f"  [artist]{cur.artist}[/artist] — [track]{cur.track_name}[/track]"
+                f"  [artist]{cur.artist}[/artist] â€” [track]{cur.track_name}[/track]"
             )
-        console.print(f"\n[success]✓ {len(curated)} tracks (dry-run, no playlist created)[/success]")
+        console.print(f"\n[success]âœ“ {len(curated)} tracks (dry-run, no playlist created)[/success]")
         return
 
     # ----- create + populate playlist
     now = _dt.datetime.now()
     title = (
-        f"{settings.playlist.playlist_name_prefix} · "
-        f"{now.strftime('%b %Y')} · {len(curated)} tracks"
+        f"{settings.playlist.playlist_name_prefix} Â· "
+        f"{now.strftime('%b %Y')} Â· {len(curated)} tracks"
     )
     try:
         playlist_id, url = create_playlist(
@@ -320,7 +320,7 @@ def run_generate(
         add_tracks(spotify, playlist_id, [c.track_id for c in curated])
     except Exception as exc:  # noqa: BLE001
         console.print(
-            f"[error]✗ Playlist creation failed: {exc}[/error]\n"
+            f"[error]âœ— Playlist creation failed: {exc}[/error]\n"
             "[muted]Check your Spotify scopes and that the account isn't read-only.[/muted]"
         )
         return
@@ -328,7 +328,7 @@ def run_generate(
     _append_history(title, url, len(curated))
 
     console.print()
-    console.print("[success]✓  Playlist created[/success]")
+    console.print("[success]âœ“  Playlist created[/success]")
     console.print(f"    [body]{title}[/body]")
     console.print(f"    [info underline]{url}[/info underline]")
 
@@ -353,7 +353,7 @@ def _fetch_top_tracks(
         transient=False,
     ) as progress:
         tasks = [
-            progress.add_task("", total=1, artist=info.name, label="…")
+            progress.add_task("", total=1, artist=info.name, label="â€¦")
             for info in resolved
         ]
         for info, task in zip(resolved, tasks):
@@ -409,7 +409,7 @@ def _fetch_via_discovery(
             try:
                 tracks = spotify.search_tracks(query.search_query, limit=10)
             except Exception:  # noqa: BLE001
-                # Spotify rate limit, connection reset, transient 5xx — skip
+                # Spotify rate limit, connection reset, transient 5xx â€” skip
                 # this one query rather than aborting the entire discovery
                 # phase. We summarise the count at the end.
                 failed_queries += 1
@@ -436,8 +436,8 @@ def _fetch_via_discovery(
 
     if failed_queries:
         console.print(
-            f"[warning]⚠ {failed_queries} of {len(queries)} Spotify searches failed "
-            "(likely rate-limited) — those queries' tracks are missing from the pool.[/warning]"
+            f"[warning]âš  {failed_queries} of {len(queries)} Spotify searches failed "
+            "(likely rate-limited) â€” those queries' tracks are missing from the pool.[/warning]"
         )
 
     by_artist: dict[str, int] = {}
@@ -452,7 +452,7 @@ def _fetch_via_discovery(
 
 
 # --------------------------------------------------------------------------- #
-# Top-tracks blacklist — used when --exclude-top-tracks is set
+# Top-tracks blacklist â€” used when --exclude-top-tracks is set
 # --------------------------------------------------------------------------- #
 
 
@@ -475,22 +475,22 @@ def _apply_top_tracks_blacklist(
             if tid:
                 blacklist.add(str(tid))
     if not blacklist:
-        console.print("[muted]No top tracks returned — nothing to blacklist.[/muted]")
+        console.print("[muted]No top tracks returned â€” nothing to blacklist.[/muted]")
         return candidates
     filtered = [c for c in candidates if c.track_id not in blacklist]
     dropped = len(candidates) - len(filtered)
     console.print(
-        f"  [muted]Blacklisted {len(blacklist)} top-track id(s) · "
+        f"  [muted]Blacklisted {len(blacklist)} top-track id(s) Â· "
         f"dropped {dropped} candidate(s)[/muted]"
     )
     return filtered
 
 
 # --------------------------------------------------------------------------- #
-# Chunked wrappers — split the artist list into ARTIST_CHUNK_SIZE batches
+# Chunked wrappers â€” split the artist list into ARTIST_CHUNK_SIZE batches
 # before calling the agent. Each call stays small enough to finish well
 # under the provider's read timeout, and one chunk failing falls back to
-# a random selection FOR THAT CHUNK ONLY — the rest still go through the
+# a random selection FOR THAT CHUNK ONLY â€” the rest still go through the
 # real agent.
 # --------------------------------------------------------------------------- #
 
@@ -514,13 +514,13 @@ def _curate_chunked(
     if len(chunks) > 1:
         console.print(
             f"[muted]Curating in {len(chunks)} chunks of up to "
-            f"{ARTIST_CHUNK_SIZE} artists…[/muted]"
+            f"{ARTIST_CHUNK_SIZE} artistsâ€¦[/muted]"
         )
     out: list[CuratedTrack] = []
     for i, chunk_names in enumerate(chunks, 1):
         if len(chunks) > 1:
             console.print(
-                f"  [muted]Chunk {i}/{len(chunks)} · {len(chunk_names)} artist(s)[/muted]"
+                f"  [muted]Chunk {i}/{len(chunks)} Â· {len(chunk_names)} artist(s)[/muted]"
             )
         chunk_candidates = [
             cand for name in chunk_names for cand in by_artist[name]
@@ -544,20 +544,20 @@ def _discover_chunked(
     if len(chunks) > 1:
         console.print(
             f"[muted]Discovery in {len(chunks)} chunks of up to "
-            f"{ARTIST_CHUNK_SIZE} artists…[/muted]"
+            f"{ARTIST_CHUNK_SIZE} artistsâ€¦[/muted]"
         )
     out: list[DiscoveryQuery] = []
     for i, chunk in enumerate(chunks, 1):
         if len(chunks) > 1:
             console.print(
-                f"  [muted]Chunk {i}/{len(chunks)} · {len(chunk)} artist(s)[/muted]"
+                f"  [muted]Chunk {i}/{len(chunks)} Â· {len(chunk)} artist(s)[/muted]"
             )
         out.extend(_discover_with_retry(agent, chunk, n, console))
     return out
 
 
 # --------------------------------------------------------------------------- #
-# Retry wrappers — apply the spec's "retry once, then random fallback" rule
+# Retry wrappers â€” apply the spec's "retry once, then random fallback" rule
 # --------------------------------------------------------------------------- #
 
 
@@ -575,18 +575,18 @@ def _curate_with_retry(
         except AgentParseError as exc:
             last_err = exc
             console.print(
-                f"[warning]⚠ Agent returned invalid JSON "
+                f"[warning]âš  Agent returned invalid JSON "
                 f"(attempt {attempt}/2): {exc}[/warning]"
             )
         except Exception as exc:  # noqa: BLE001
             last_err = exc
             console.print(
-                f"[warning]⚠ {agent.name} error (attempt {attempt}/2): {exc}[/warning]"
+                f"[warning]âš  {agent.name} error (attempt {attempt}/2): {exc}[/warning]"
             )
     console.print(
         f"[warning]Falling back to random selection ({last_err}).[/warning]"
     )
-    return random_fallback_curate(candidates, n, reason="Agent failed — random selection")
+    return random_fallback_curate(candidates, n, reason="Agent failed â€” random selection")
 
 
 def _discover_with_retry(
@@ -602,13 +602,13 @@ def _discover_with_retry(
         except AgentParseError as exc:
             last_err = exc
             console.print(
-                f"[warning]⚠ Discovery returned invalid JSON "
+                f"[warning]âš  Discovery returned invalid JSON "
                 f"(attempt {attempt}/2): {exc}[/warning]"
             )
         except Exception as exc:  # noqa: BLE001
             last_err = exc
             console.print(
-                f"[warning]⚠ {agent.name} discovery error (attempt {attempt}/2): {exc}[/warning]"
+                f"[warning]âš  {agent.name} discovery error (attempt {attempt}/2): {exc}[/warning]"
             )
     console.print(
         f"[warning]Falling back to random discovery angles ({last_err}).[/warning]"
@@ -629,6 +629,202 @@ def _spinner(console: Console, label: str) -> Progress:
         console=console,
         transient=True,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Genre-based playlist generation
+# --------------------------------------------------------------------------- #
+
+
+def run_genre(
+    artist: str,
+    count: int = 10,
+    limit_artists: int = 20,
+    theme_override: Optional[Flavor] = None,
+    dry_run: bool = False,
+) -> None:
+    """Create a playlist from artists in the same genre as the specified artist."""
+    try:
+        settings = load_settings()
+    except ConfigError as exc:
+        fallback = Console(theme=build_rich_theme("mocha", "mauve"))
+        fallback.print(f"[error]x {exc}[/error]")
+        return
+
+    if theme_override is not None:
+        settings.ui.flavor = theme_override
+
+    console = Console(theme=build_rich_theme(settings.ui.flavor.value, settings.ui.accent.value))
+    banner(console)
+
+    console.print(f" [label]Artist[/label]    [body]{artist}[/body]\n")
+
+    try:
+        spotify = SpotifyClient.from_settings(settings)
+    except Exception as exc:
+        console.print(
+            f"[error]x Spotify auth failed[/error] - {exc}\n"
+            "[muted]Run spotagen setup to reconfigure.[/muted]"
+        )
+        return
+
+    console.print(Rule("Resolving artist", style="border"))
+    artist_info = spotify.search_artist(artist)
+    if artist_info is None:
+        console.print(f"[error]x Artist not found: {artist}[/error]")
+        return
+
+    console.print(f"  [artist]{artist_info.name}[/artist]\n")
+
+    console.print(Rule("Fetching artist genres", style="border"))
+    try:
+        artist_data = spotify._sp.artist(artist_info.id)
+    except Exception:
+        console.print(f"[error]x Could not fetch artist data[/error]")
+        return
+
+    genres = artist_data.get("genres", [])
+    if not genres:
+        console.print(f"[warning]No genres found for {artist_info.name}[/warning]")
+        return
+
+    console.print(f"  [muted]Genres: {', '.join(genres)}[/muted]\n")
+
+    console.print(Rule("Fetching artists from genre", style="border"))
+    all_genre_artists = []
+    seen_ids = set()
+    
+    for genre in genres:
+        if len(all_genre_artists) >= limit_artists:
+            break
+        try:
+            # Spotify search needs multi-word filter values wrapped in quotes:
+            # `genre:dream pop` matches only `genre:dream`; `genre:"dream pop"` works.
+            result = spotify._sp.search(q=f'genre:"{genre}"', type="artist", limit=10)
+        except Exception:
+            continue
+        items = (result or {}).get("artists", {}).get("items", []) or []
+        for item in items:
+            aid = str(item.get("id", ""))
+            if aid and aid not in seen_ids:
+                all_genre_artists.append(ArtistInfo(id=aid, name=str(item.get("name", ""))))
+                seen_ids.add(aid)
+            if len(all_genre_artists) >= limit_artists:
+                break
+
+    if not all_genre_artists:
+        console.print("[error]x No artists found in the genre[/error]")
+        return
+
+    console.print(f"  [muted]{len(all_genre_artists)} artists found across genres[/muted]\n")
+
+    console.print(Rule("Fetching tracks", style="border"))
+    all_candidates = []
+    with Progress(
+        TextColumn("  [artist]{task.fields[artist]:<24}[/artist]"),
+        BarColumn(complete_style="accent", finished_style="success"),
+        TextColumn("[muted]{task.fields[label]}[/muted]"),
+        console=console,
+        transient=False,
+    ) as progress:
+        tasks = [
+            progress.add_task("", total=1, artist=info.name, label="...")
+            for info in all_genre_artists
+        ]
+        for info, task in zip(all_genre_artists, tasks):
+            try:
+                tracks = spotify.top_tracks(info.id)
+            except Exception:
+                progress.update(task, completed=1, label="[warning]error[/warning]")
+                continue
+            for track in tracks:
+                all_candidates.append(
+                    TrackCandidate(
+                        artist=info.name,
+                        track_id=str(track["id"]),
+                        track_name=str(track["name"]),
+                        popularity=int(track.get("popularity", 0)),
+                        is_top_track=True,
+                    )
+                )
+            progress.update(
+                task,
+                completed=1,
+                label=f"{len(tracks)} tracks",
+            )
+
+    if not all_candidates:
+        console.print("[error]x No tracks found from genre artists[/error]")
+        return
+
+    if len(all_candidates) > count:
+        curated = random.sample(all_candidates, count)
+    else:
+        curated = list(all_candidates)
+
+    curated_tracks = [
+        CuratedTrack(
+            artist=c.artist,
+            track_name=c.track_name,
+            track_id=c.track_id,
+            reason=f"From genre artist: {c.artist}",
+        )
+        for c in curated
+    ]
+
+    if settings.playlist.randomize_order:
+        random.shuffle(curated_tracks)
+
+    if dry_run:
+        console.print(Rule("Dry run - tracklist", style="border"))
+        for cur in curated_tracks:
+            console.print(
+                f"  [artist]{cur.artist}[/artist] - [track]{cur.track_name}[/track]"
+            )
+        console.print(f"\n[success] {len(curated_tracks)} tracks (dry-run, no playlist created)[/success]")
+        return
+
+    now = _dt.datetime.now()
+    prefix_template = settings.playlist.playlist_name_prefix
+    has_date_codes = "%" in prefix_template
+    prefix_rendered = (
+        now.strftime(prefix_template) if has_date_codes else prefix_template
+    )
+    date_suffix = "" if has_date_codes else f" - {now.strftime('%b %Y')}"
+    genre_str = ", ".join(genres[:3])
+    title = f"{prefix_rendered} {genre_str} genre{date_suffix} - {len(curated_tracks)} tracks"
+
+    try:
+        playlist_id, url = _retry(
+            lambda: create_playlist(
+                spotify, title, description=f"Genre: {genre_str} - Generated by spotagen", public=False
+            ),
+            console=console,
+            label="creating playlist",
+        )
+    except Exception as exc:
+        console.print(f"[error]x Playlist creation failed: {exc}[/error]")
+        return
+
+    try:
+        _retry(
+            lambda: add_tracks(spotify, playlist_id, [c.track_id for c in curated_tracks]),
+            console=console,
+            label="adding tracks",
+        )
+    except Exception as exc:
+        console.print(f"[error]x Adding tracks failed: {exc}[/error]")
+        console.print(
+            f"    Empty/partial playlist at: [info underline]{url}[/info underline]"
+        )
+        return
+
+    _append_history(title, url, len(curated_tracks))
+
+    console.print()
+    console.print("[success] Playlist created[/success]")
+    console.print(f"    [body]{title}[/body]")
+    console.print(f"    [info underline]{url}[/info underline]")
 
 
 def _append_history(title: str, url: str, count: int) -> None:

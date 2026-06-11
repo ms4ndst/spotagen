@@ -42,6 +42,17 @@ class PlaylistSettings(BaseModel):
     use_top_tracks: bool = True
     randomize_order: bool = True
     playlist_name_prefix: str = "Spotagen"
+    """Prefix for the generated playlist name. Treated as a Python `strftime`
+    template — any `%`-codes are expanded against today's date. Examples:
+
+      "Spotagen"               -> "Spotagen · Jun 2026 · 15 tracks"
+      "Spotagen %Y-%m-%d"      -> "Spotagen 2026-06-09 · 15 tracks"
+      "Mix for %A %d %B"       -> "Mix for Tuesday 09 June · 15 tracks"
+      "%Y-W%V Spotagen"        -> "2026-W24 Spotagen · 15 tracks"
+
+    When the prefix contains any `%`-code, the default "· Mon YYYY ·" date
+    suffix is dropped so the date isn't duplicated. Use `%%` for a literal
+    percent sign."""
     use_followed_artists: bool = False
     """When True, every `generate` run pulls the user's Spotify-followed
     artists and merges them with `artists.toml`. Default False for backwards
